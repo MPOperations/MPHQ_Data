@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <!--
-  MPHQ launcher page (GitHub Pages) — v1.1
+  MPHQ launcher page (GitHub Pages) — v1.2
+  v1.2: APP_URL now points straight at the MPHQ Dashboard web app (skipping the
+  staff.mpaustin.org front door), per the user's request.
   v1.1: APP_URL now accepts any https:// address and defaults to the staff
   front door (staff.mpaustin.org) instead of a raw script.google.com address.
   Purpose: gives phones an installable "web app" (manifest + icons) for the
@@ -14,7 +16,7 @@
     - Opened from the installed home-screen icon (standalone mode): jumps
       straight to the Dashboard.
 
-  >>> Check the APP_URL line below (already set to the front door). <<<
+  >>> Check the APP_URL line below (set to the MPHQ Dashboard address). <<<
 -->
 <html lang="en">
 <head>
@@ -72,9 +74,9 @@
 
 <script>
   // ============================================================
-  //  The address the installed icon opens: the staff front door, which
-  //  is the address the team already uses (and which handles the phone
-  //  display fix and the "sign in with your mpaustin account" notice).
+  //  The address the installed icon opens: the MPHQ Dashboard web app
+  //  itself (the domain-scoped mpaustin.org address from Manage
+  //  deployments). The staff.mpaustin.org front door is skipped.
   //  Must start with https://
   // ============================================================
   var APP_URL = 'https://script.google.com/a/macros/mpaustin.org/s/AKfycbw_NNhko8QqyMMhoabr8L6CYYPxc0RDMIEgN9QwD3FyBuIzMc9m_LVortLqtP-u9Q9U/exec';
