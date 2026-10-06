@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<!--
+  MPHQ launcher page (GitHub Pages) — v1.1
+  v1.1: APP_URL now accepts any https:// address and defaults to the staff
+  front door (staff.mpaustin.org) instead of a raw script.google.com address.
+  Purpose: gives phones an installable "web app" (manifest + icons) for the
+  Mission Possible HQ Dashboard, which is an Apps Script app and can't serve
+  a manifest itself. Installing this page gives the real MPHQ icon instead of
+  Chrome's stamped shortcut icon.
+
+  BEHAVIOR
+    - Opened in a normal browser tab: shows an install page (Install button
+      on Android/Chrome, instructions for iPhone) plus an "Open the app" link.
+    - Opened from the installed home-screen icon (standalone mode): jumps
+      straight to the Dashboard.
+
+  >>> Check the APP_URL line below (already set to the front door). <<<
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MPHQ</title>
+<meta name="theme-color" content="#2a5c3f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="MPHQ">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root { --accent:#2a5c3f; --accent-dark:#1a3d29; --bg:#f9f6f0; --text:#1a1714; --muted:#5a524a; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; background: var(--bg); color: var(--text);
+         min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .card { background: #fff; border: 1px solid #e0d8cc; border-radius: 14px; max-width: 420px; width: 100%;
+          padding: 28px 22px; text-align: center; box-shadow: 0 6px 24px rgba(42,92,63,.10); }
+  .card img { width: 96px; height: 96px; border-radius: 22px; display: block; margin: 0 auto 14px; }
+  h1 { font-size: 22px; margin-bottom: 6px; }
+  p  { font-size: 15px; color: var(--muted); line-height: 1.45; margin: 8px 0; }
+  .btn { display: block; width: 100%; padding: 13px 16px; margin-top: 14px; border-radius: 10px; font-size: 16px;
+         font-weight: 600; text-decoration: none; border: 2px solid var(--accent); cursor: pointer; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-secondary { background: #fff; color: var(--accent); }
+  .steps { text-align: left; font-size: 14px; color: var(--muted); margin-top: 16px; line-height: 1.5;
+           background: #f2ede4; border-radius: 10px; padding: 12px 14px; }
+  .steps strong { color: var(--text); }
+  #install-btn { display: none; }
+  .err { color: #b03a3a; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <img src="icon-192.png" alt="MPHQ">
+  <h1>Mission Possible HQ</h1>
+  <p>Install the app on your phone so it opens from its own icon.</p>
+
+  <button class="btn btn-primary" id="install-btn" type="button">Install MPHQ</button>
+
+  <div class="steps" id="steps-android">
+    <strong>Android (Chrome):</strong> tap the ⋮ menu, then <strong>Install app</strong>
+    (or <strong>Add to Home screen</strong>).
+  </div>
+  <div class="steps" id="steps-ios">
+    <strong>iPhone (Safari):</strong> tap the Share button, then <strong>Add to Home Screen</strong>.
+  </div>
+
+  <a class="btn btn-secondary" id="open-link" href="#">Open the app now</a>
+  <p id="config-error" class="err" style="display:none;"></p>
+</div>
+
+<script>
+  // ============================================================
+  //  The address the installed icon opens: the staff front door, which
+  //  is the address the team already uses (and which handles the phone
+  //  display fix and the "sign in with your mpaustin account" notice).
+  //  Must start with https://
+  // ============================================================
+  var APP_URL = 'https://staff.mpaustin.org';
+  // ============================================================
+
+  var configured = /^https:\/\/[^\s\/]+\.[^\s\/]+(\/\S*)?$/.test(APP_URL);
+
+  var openLink = document.getElementById('open-link');
+  if (configured) {
+    openLink.href = APP_URL;
+  } else {
+    openLink.style.display = 'none';
+    var e = document.getElementById('config-error');
+    e.style.display = 'block';
+    e.textContent = 'Setup needed: the app address (APP_URL) has not been added to this page yet.';
+  }
+
+  // Opened from the installed icon? Go straight to the Dashboard.
+  var standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+                   window.navigator.standalone === true;
+  if (standalone && configured) {
+    window.location.replace(APP_URL);
+  }
+
+  // Show only the instructions that apply to this device.
+  var ua = navigator.userAgent || '';
+  var isIOS = /iPhone|iPad|iPod/.test(ua);
+  document.getElementById('steps-ios').style.display = isIOS ? 'block' : 'none';
+  document.getElementById('steps-android').style.display = isIOS ? 'none' : 'block';
+
+  // Android/Chrome: real Install button when the browser offers it.
+  var deferredPrompt = null;
+  var installBtn = document.getElementById('install-btn');
+  window.addEventListener('beforeinstallprompt', function(ev) {
+    ev.preventDefault();
+    deferredPrompt = ev;
+    installBtn.style.display = 'block';
+  });
+  installBtn.addEventListener('click', function() {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(function() { deferredPrompt = null; installBtn.style.display = 'none'; });
+  });
+  window.addEventListener('appinstalled', function() { installBtn.style.display = 'none'; });
+
+  // Service worker (some browsers only offer "Install" when one is present).
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(function() { /* not fatal */ });
+  }
+</script>
+</body>
+</html>
