@@ -1,6 +1,10 @@
 <!DOCTYPE html>
 <!--
-  MPHQ launcher page (GitHub Pages) — v1.3
+  MPHQ launcher page (GitHub Pages) — v1.4
+  v1.4: simplified card — removed the intro sentence and the Android install
+  instructions; the button now reads "Open MPHQ". The iPhone-only instructions
+  stay (iPhones have no Install button, so they need them) and stay hidden on
+  Android.
   v1.3: colors switched from green to the Dashboard's blue theme (color_accent
   #265694) so the launcher page and the browser bar match the app.
   v1.2: APP_URL now points straight at the MPHQ Dashboard web app (skipping the
@@ -50,7 +54,7 @@
   .steps { text-align: left; font-size: 14px; color: var(--muted); margin-top: 16px; line-height: 1.5;
            background: #f2ede4; border-radius: 10px; padding: 12px 14px; }
   .steps strong { color: var(--text); }
-  #install-btn { display: none; }
+  #install-btn, #steps-ios { display: none; }
   .err { color: #b03a3a; font-weight: 600; }
 </style>
 </head>
@@ -58,19 +62,14 @@
 <div class="card" id="card">
   <img src="icon-192.png" alt="MPHQ">
   <h1>Mission Possible HQ</h1>
-  <p>Install the app on your phone so it opens from its own icon.</p>
 
   <button class="btn btn-primary" id="install-btn" type="button">Install MPHQ</button>
 
-  <div class="steps" id="steps-android">
-    <strong>Android (Chrome):</strong> tap the ⋮ menu, then <strong>Install app</strong>
-    (or <strong>Add to Home screen</strong>).
-  </div>
   <div class="steps" id="steps-ios">
     <strong>iPhone (Safari):</strong> tap the Share button, then <strong>Add to Home Screen</strong>.
   </div>
 
-  <a class="btn btn-secondary" id="open-link" href="#">Open the app now</a>
+  <a class="btn btn-secondary" id="open-link" href="#">Open MPHQ</a>
   <p id="config-error" class="err" style="display:none;"></p>
 </div>
 
@@ -103,11 +102,10 @@
     window.location.replace(APP_URL);
   }
 
-  // Show only the instructions that apply to this device.
+  // iPhone only: no Install button exists there, so show the Add to Home Screen steps.
   var ua = navigator.userAgent || '';
   var isIOS = /iPhone|iPad|iPod/.test(ua);
   document.getElementById('steps-ios').style.display = isIOS ? 'block' : 'none';
-  document.getElementById('steps-android').style.display = isIOS ? 'none' : 'block';
 
   // Android/Chrome: real Install button when the browser offers it.
   var deferredPrompt = null;
