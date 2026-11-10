@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<!--
+  MPHQ Voice Recorder (hosted page)
+  Version: 1.0 - November 2026
+  Goes with Mission Possible HQ Index.html v1.78 and later.
+
+  WHY THIS PAGE EXISTS: pages inside Apps Script run in a Google frame that blocks the microphone, so MPHQ
+  cannot record by itself. This page is hosted OUTSIDE Apps Script (GitHub Pages), where the browser asks for
+  the microphone normally. MPHQ opens it in a small window; it records, then hands the audio back to MPHQ with
+  postMessage. Nothing is uploaded anywhere from here: the audio only goes to the window that opened this page,
+  and MPHQ saves it to the person's own Notes folder.
+
+  HOSTING: put this file at the same address as VN_RECORDER_URL in Index.html
+  (default https://mpoperations.github.io/MPHQ_Data/recorder.html).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MPHQ Voice Recorder</title>
+<style>
+:root { --bg:#f6f3ec; --card:#ffffff; --text:#1a1714; --text2:#5a524a; --accent:#2a5c3f; --accent-light:#e6efe9; --red:#b03a3a; --border:#e0d8cc; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#14171a; --card:#1c2024; --text:#e8e6e3; --text2:#b6bac2; --accent:#3f8a5f; --accent-light:#1f2e26; --red:#e06a6a; --border:#343a40; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+body { display: flex; align-items: flex-start; justify-content: center; padding: 16px; }
+.card { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 22px 18px 20px; text-align: center; }
+h1 { font-size: 17px; margin: 0 0 4px; }
+.sub { font-size: 13px; color: var(--text2); line-height: 1.45; margin: 0 0 14px; }
+.rec { width: 96px; height: 96px; border-radius: 50%; border: none; background: var(--red); color: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 16px rgba(0,0,0,.2); }
+.rec svg { width: 40px; height: 40px; }
+.rec.on { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(176,58,58,.55); } 70% { box-shadow: 0 0 0 22px rgba(176,58,58,0); } 100% { box-shadow: 0 0 0 0 rgba(176,58,58,0); } }
+@media (prefers-reduced-motion: reduce) { .rec.on { animation: none; } }
+.timer { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 28px; font-weight: 600; margin: 12px 0 2px; }
+audio { width: 100%; margin: 6px 0 4px; }
+.row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
+button.b { font: inherit; font-size: 15px; font-weight: 600; padding: 11px 18px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; min-height: 44px; }
+button.b.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.b.danger { color: var(--red); }
+button.b:disabled { opacity: .6; cursor: default; }
+.msg { font-size: 13px; margin-top: 12px; line-height: 1.45; color: var(--text2); }
+.msg.err { color: var(--red); }
+.ok { background: var(--accent-light); border-radius: 10px; padding: 12px; font-size: 14px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="card" id="app" aria-live="polite"></div>
+<script>
+(function () {
+  var MAX_SECONDS = 600;
+  var MIC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/><path d="M8.5 21h7"/></svg>';
+  var STOP = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>';
+  var app = document.getElementById('app');
+  var S = { state: 'idle', stream: null, rec: null, chunks: [], mime: '', blob: null, url: '', seconds: 0, started: 0, timer: null, msg: '', err: false, ackTimer: null };
+
+  function hasOpener() { try { return !!(window.opener && !window.opener.closed); } catch (e) { return false; } }
+  function fmt(s) { var m = Math.floor(s / 60), r = s % 60; return m + ':' + (r < 10 ? '0' : '') + r; }
+  function esc(t) { return String(t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function pickMime() {
+    if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
+    var c = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/ogg'];
+    for (var i = 0; i < c.length; i++) { if (MediaRecorder.isTypeSupported(c[i])) return c[i]; }
+    return '';
+  }
+  function setMsg(m, err) { S.msg = m || ''; S.err = !!err; var el = document.getElementById('msg'); if (el) { el.textContent = S.msg; el.className = 'msg' + (S.err ? ' err' : ''); } }
+  function stopStream() {
+    if (S.timer) { clearInterval(S.timer); S.timer = null; }
+    if (S.stream) { try { S.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {} S.stream = null; }
+  }
+
+  function render() {
+    var h = '<h1>MPHQ Voice Note</h1>';
+    if (!hasOpener() && S.state !== 'sent') {
+      h += '<p class="sub">Open this recorder from the mic button in Mission Possible HQ so the note can be sent back there.</p>';
+    }
+    if (S.state === 'idle') {
+      h += '<p class="sub">Tap the red button and start talking. Your browser will ask to use the microphone the first time: choose Allow.</p>' +
+           '<button class="rec" id="go" type="button" aria-label="Start recording">' + MIC + '</button>';
+    } else if (S.state === 'recording') {
+      h += '<p class="sub">Recording&hellip; tap the square when you are done.</p>' +
+           '<button class="rec on" id="stop" type="button" aria-label="Stop recording">' + STOP + '</button>' +
+           '<div class="timer" id="timer">' + fmt(S.seconds) + ' / ' + fmt(MAX_SECONDS) + '</div>' +
+           '<div class="row"><button class="b danger" id="discard" type="button">Discard</button></div>';
+    } else if (S.state === 'review') {
+      h += '<p class="sub">Recorded ' + fmt(S.seconds) + '. Listen if you like, then send it to MPHQ.</p>' +
+           '<audio controls src="' + esc(S.url) + '"></audio>' +
+           '<div class="row"><button class="b primary" id="send" type="button"' + (hasOpener() ? '' : ' disabled') + '>Send to MPHQ</button>' +
+           '<button class="b danger" id="discard" type="button">Discard</button></div>';
+    } else if (S.state === 'sending') {
+      h += '<p class="sub">Sending to MPHQ&hellip;</p>';
+    } else if (S.state === 'sent') {
+      h += '<div class="ok">Sent. Switch back to MPHQ and tap <strong>Save note</strong> to finish. You can close this window.</div>' +
+           '<div class="row"><button class="b" id="again" type="button">Record another</button><button class="b primary" id="close" type="button">Close</button></div>';
+    }
+    h += '<div class="msg' + (S.err ? ' err' : '') + '" id="msg">' + esc(S.msg) + '</div>';
+    app.innerHTML = h;
+    var b;
+    if ((b = document.getElementById('go'))) b.onclick = start;
+    if ((b = document.getElementById('stop'))) b.onclick = stop;
+    if ((b = document.getElementById('discard'))) b.onclick = discard;
+    if ((b = document.getElementById('send'))) b.onclick = send;
+    if ((b = document.getElementById('again'))) b.onclick = function () { reset(); render(); };
+    if ((b = document.getElementById('close'))) b.onclick = function () { try { window.close(); } catch (e) {} setMsg('You can close this window now.'); };
+  }
+
+  function start() {
+    setMsg('');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setMsg('This browser cannot record audio. Try the latest Chrome or Safari.', true); return;
+    }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      S.stream = stream; S.chunks = [];
+      var mime = pickMime(), rec;
+      try { rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream); }
+      catch (e) { stopStream(); setMsg('Recording could not start on this device.', true); return; }
+      S.rec = rec; S.mime = rec.mimeType || mime || 'audio/webm';
+      rec.ondataavailable = function (ev) { if (ev.data && ev.data.size) S.chunks.push(ev.data); };
+      rec.onstop = finish;
+      rec.onerror = function () { stopStream(); S.state = 'idle'; render(); setMsg('The recording stopped unexpectedly. Please try again.', true); };
+      rec.start(1000);
+      S.state = 'recording'; S.started = Date.now(); S.seconds = 0;
+      S.timer = setInterval(tick, 250);
+      render();
+    }).catch(function (e) {
+      var n = e && e.name;
+      setMsg(n === 'NotAllowedError' || n === 'SecurityError'
+        ? 'The microphone is blocked for this page. Click the lock or microphone icon in the address bar, set Microphone to Allow, then try again.'
+        : (n === 'NotFoundError' ? 'No microphone was found on this device.' : 'The microphone could not be started.'), true);
+    });
+  }
+  function tick() {
+    S.seconds = Math.floor((Date.now() - S.started) / 1000);
+    var t = document.getElementById('timer'); if (t) t.textContent = fmt(S.seconds) + ' / ' + fmt(MAX_SECONDS);
+    if (S.seconds >= MAX_SECONDS) stop();
+  }
+  function stop() { if (S.rec && S.rec.state !== 'inactive') { try { S.rec.stop(); } catch (e) {} } }
+  function finish() {
+    var secs = S.started ? Math.max(1, Math.round((Date.now() - S.started) / 1000)) : S.seconds;
+    stopStream();
+    var blob = new Blob(S.chunks, { type: S.mime }); S.chunks = [];
+    if (!blob.size || blob.size < 800) { S.state = 'idle'; render(); setMsg('Nothing was recorded. Try again.', true); return; }
+    S.seconds = Math.min(MAX_SECONDS, secs); S.blob = blob; S.url = URL.createObjectURL(blob); S.state = 'review';
+    render();
+  }
+  function reset() {
+    stopStream();
+    if (S.url) { try { URL.revokeObjectURL(S.url); } catch (e) {} }
+    S.state = 'idle'; S.blob = null; S.url = ''; S.chunks = []; S.seconds = 0; S.msg = ''; S.err = false;
+    if (S.ackTimer) { clearTimeout(S.ackTimer); S.ackTimer = null; }
+  }
+  function discard() {
+    if (S.rec && S.rec.state !== 'inactive') { S.rec.onstop = null; try { S.rec.stop(); } catch (e) {} }
+    reset(); render();
+  }
+  function send() {
+    if (!S.blob) return;
+    if (!hasOpener()) { setMsg('MPHQ is not open any more. Open this recorder again from the mic button in MPHQ.', true); render(); return; }
+    S.state = 'sending'; setMsg(''); render();
+    try {
+      window.opener.postMessage({ type: 'mphq-voice-note', version: 1, mime: S.blob.type || S.mime, seconds: S.seconds, blob: S.blob }, '*');
+    } catch (e) { S.state = 'review'; render(); setMsg('The note could not be sent: ' + (e && e.message ? e.message : e), true); return; }
+    S.ackTimer = setTimeout(function () {
+      if (S.state !== 'sending') return;
+      S.state = 'review'; render();
+      setMsg('MPHQ did not answer. Switch to the MPHQ window, check that the Voice Notes pop-up is open, then tap Send again.', true);
+    }, 15000);
+  }
+  // Only the window that opened this page may answer.
+  window.addEventListener('message', function (e) {
+    if (!window.opener || e.source !== window.opener) return;
+    var d = e.data; if (!d || d.type !== 'mphq-voice-ack') return;
+    if (S.ackTimer) { clearTimeout(S.ackTimer); S.ackTimer = null; }
+    if (S.state !== 'sending') return;
+    if (d.ok) {
+      S.state = 'sent'; render();
+      setTimeout(function () { try { window.close(); } catch (err) {} }, 1500);
+    } else {
+      S.state = 'review'; render(); setMsg(d.error || 'MPHQ could not take that recording.', true);
+    }
+  });
+  window.addEventListener('beforeunload', stopStream);
+  render();
+})();
+</script>
+</body>
+</html>
